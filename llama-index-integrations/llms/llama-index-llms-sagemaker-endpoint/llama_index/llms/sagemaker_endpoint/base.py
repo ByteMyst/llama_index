@@ -35,6 +35,53 @@ LLAMA_COMPLETION_TO_PROMPT = completion_to_prompt
 
 
 class SageMakerLLM(LLM):
+    r"""SageMaker LLM.
+
+    Examples:
+        `pip install llama-index-llms-sagemaker-endpoint`
+
+        ```python
+        from llama_index.llms.sagemaker import SageMakerLLM
+
+        # hooks for HuggingFaceH4/zephyr-7b-beta
+        # different models may require different formatting
+        def messages_to_prompt(messages):
+            prompt = ""
+            for message in messages:
+                if message.role == 'system':
+                prompt += f"<|system|>\n{message.content}</s>\n"
+                elif message.role == 'user':
+                prompt += f"<|user|>\n{message.content}</s>\n"
+                elif message.role == 'assistant':
+                prompt += f"<|assistant|>\n{message.content}</s>\n"
+
+            # ensure we start with a system prompt, insert blank if needed
+            if not prompt.startswith("<|system|>\n"):
+                prompt = "<|system|>\n</s>\n" + prompt
+
+            # add final assistant prompt
+            prompt = prompt + "<|assistant|>\n"
+
+            return prompt
+
+        def completion_to_prompt(completion):
+            return f"<|system|>\n</s>\n<|user|>\n{completion}</s>\n<|assistant|>\n"
+
+        # Additional setup for SageMakerLLM class
+        model_name = "HuggingFaceH4/zephyr-7b-beta"
+        api_key = "your_api_key"
+        region = "your_region"
+
+        llm = SageMakerLLM(
+            model_name=model_name,
+            api_key=api_key,
+            region=region,
+            messages_to_prompt=messages_to_prompt,
+            completion_to_prompt=completion_to_prompt,
+        )
+        ```
+    """
+
     endpoint_name: str = Field(description="SageMaker LLM endpoint name")
     endpoint_kwargs: Dict[str, Any] = Field(
         default={},
@@ -57,7 +104,7 @@ class SageMakerLLM(LLM):
         description="AWS Secret Access Key to use"
     )
     aws_session_token: Optional[str] = Field(description="AWS Session Token to use")
-    aws_region_name: Optional[str] = Field(
+    region_name: Optional[str] = Field(
         description="AWS region name to use. Uses region configured in AWS CLI if not passed"
     )
     max_retries: Optional[int] = Field(
@@ -108,17 +155,6 @@ class SageMakerLLM(LLM):
         model_kwargs = model_kwargs or {}
         model_kwargs["temperature"] = temperature
         content_handler = content_handler
-        self._completion_to_prompt = completion_to_prompt
-        self._client = get_aws_service_client(
-            service_name="sagemaker-runtime",
-            profile_name=profile_name,
-            region_name=region_name,
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-            aws_session_token=aws_session_token,
-            max_retries=max_retries,
-            timeout=timeout,
-        )
         callback_manager = callback_manager or CallbackManager([])
 
         super().__init__(
@@ -134,6 +170,17 @@ class SageMakerLLM(LLM):
             messages_to_prompt=messages_to_prompt,
             pydantic_program_mode=pydantic_program_mode,
             output_parser=output_parser,
+        )
+        self._completion_to_prompt = completion_to_prompt
+        self._client = get_aws_service_client(
+            service_name="sagemaker-runtime",
+            profile_name=profile_name,
+            region_name=region_name,
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            aws_session_token=aws_session_token,
+            max_retries=max_retries,
+            timeout=timeout,
         )
 
     @llm_completion_callback()

@@ -150,10 +150,19 @@ class SQLDatabase:
     def get_single_table_info(self, table_name: str) -> str:
         """Get table info for a single table."""
         # same logic as table_info, but with specific table names
-        template = (
-            "Table '{table_name}' has columns: {columns}, "
-            "and foreign keys: {foreign_keys}."
-        )
+        template = "Table '{table_name}' has columns: {columns}, "
+        try:
+            # try to retrieve table comment
+            table_comment = self._inspector.get_table_comment(
+                table_name, schema=self._schema
+            )["text"]
+            if table_comment:
+                template += f"with comment: ({table_comment}) "
+        except NotImplementedError:
+            # get_table_comment raises NotImplementedError for a dialect that does not support comments.
+            pass
+
+        template += "{foreign_keys}."
         columns = []
         for column in self._inspector.get_columns(table_name, schema=self._schema):
             if column.get("comment"):
@@ -173,7 +182,11 @@ class SQLDatabase:
                 f"{foreign_key['constrained_columns']} -> "
                 f"{foreign_key['referred_table']}.{foreign_key['referred_columns']}"
             )
-        foreign_key_str = ", ".join(foreign_keys)
+        foreign_key_str = (
+            foreign_keys
+            and " and foreign keys: {}".format(", ".join(foreign_keys))
+            or ""
+        )
         return template.format(
             table_name=table_name, columns=column_str, foreign_keys=foreign_key_str
         )
@@ -208,6 +221,7 @@ class SQLDatabase:
             try:
                 if self._schema:
                     command = command.replace("FROM ", f"FROM {self._schema}.")
+                    command = command.replace("JOIN ", f"JOIN {self._schema}.")
                 cursor = connection.execute(text(command))
             except (ProgrammingError, OperationalError) as exc:
                 raise NotImplementedError(
