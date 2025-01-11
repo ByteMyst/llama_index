@@ -42,11 +42,14 @@ class Neo4jGraphStore(GraphStore):
         url: str,
         database: str = "neo4j",
         node_label: str = "Entity",
+        refresh_schema: bool = True,
+        timeout: Optional[float] = None,
         **kwargs: Any,
     ) -> None:
         self.node_label = node_label
         self._driver = neo4j.GraphDatabase.driver(url, auth=(username, password))
         self._database = database
+        self._timeout = timeout
         self.schema = ""
         self.structured_schema: Dict[str, Any] = {}
         # Verify connection
@@ -64,14 +67,17 @@ class Neo4jGraphStore(GraphStore):
                 "Please ensure that the username and password are correct"
             )
         # Set schema
-        try:
-            self.refresh_schema()
-        except neo4j.exceptions.ClientError:
-            raise ValueError(
-                "Could not use APOC procedures. "
-                "Please ensure the APOC plugin is installed in Neo4j and that "
-                "'apoc.meta.data()' is allowed in Neo4j configuration "
-            )
+        self.schema = ""
+        self.structured_schema = {}
+        if refresh_schema:
+            try:
+                self.refresh_schema()
+            except neo4j.exceptions.ClientError:
+                raise ValueError(
+                    "Could not use APOC procedures. "
+                    "Please ensure the APOC plugin is installed in Neo4j and that "
+                    "'apoc.meta.data()' is allowed in Neo4j configuration "
+                )
         # Create constraint for faster insert and retrieval
         try:  # Using Neo4j 5
             self.query(
@@ -253,7 +259,9 @@ class Neo4jGraphStore(GraphStore):
         param_map = param_map or {}
         try:
             data, _, _ = self._driver.execute_query(
-                query, database_=self._database, parameters_=param_map
+                neo4j.Query(text=query, timeout=self._timeout),
+                database_=self._database,
+                parameters_=param_map,
             )
             return [r.data() for r in data]
         except neo4j.exceptions.Neo4jError as e:
@@ -277,5 +285,7 @@ class Neo4jGraphStore(GraphStore):
                 raise
         # Fallback to allow implicit transactions
         with self._driver.session(database=self._database) as session:
-            data = session.run(neo4j.Query(text=query), param_map)
+            data = session.run(
+                neo4j.Query(text=query, timeout=self._timeout), param_map
+            )
             return [r.data() for r in data]
